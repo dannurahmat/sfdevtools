@@ -1,0 +1,23 @@
+# Dependency directories
+node_modules/
+
+# Build outputs
+out/
+dist/
+
+# VS Code test results
+.vscode-test/
+
+# Mac system files
+.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Extension bundle
+*.vsix
+
+# TypeScript build info
+*.tsbuildinfo

@@ -1,0 +1,103 @@
+{
+  "name": "sfdevtools",
+  "displayName": "SF DevTools",
+  "description": "Salesforce Developer Tools for VS Code",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sfdevtools.refreshOrg",
+        "title": "SF DevTools: Refresh Org"
+      },
+      {
+        "command": "sfdevtools.login",
+        "title": "SF DevTools: Connect to Org"
+      },
+      {
+        "command": "sfdevtools.openMetadataBrowser",
+        "title": "Open Metadata Browser",
+        "icon": "$(layers)"
+      },
+      {
+        "command": "sfdevtools.openSoqlBuilder",
+        "title": "SOQL Builder",
+        "icon": "$(database)"
+      },
+      {
+        "command": "sfdevtools.openToolingQuery",
+        "title": "Tooling API Query",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "sfdevtools.openGraphqlBuilder",
+        "title": "GraphQL Explorer",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "sfdevtools.openApexLogs",
+        "title": "Open Apex Logs",
+        "icon": "$(file-code)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sfdevtools-sidebar",
+          "title": "SF DevTools",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "sfdevtools-sidebar": [
+        {
+          "id": "sfdevtools-view",
+          "name": "Tools",
+          "icon": "$(tools)",
+          "visibility": "visible"
+        },
+        {
+          "id": "sfdevtools-org",
+          "name": "Org Connection",
+          "icon": "$(hubot)",
+          "visibility": "visible"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "test:unit": "mocha -r ts-node/register -r ./test/bootstrap.ts test/**/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/sinon": "^21.0.0",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^7.1.0",
+    "@typescript-eslint/parser": "^7.1.0",
+    "chai": "^6.2.2",
+    "eslint": "^8.57.0",
+    "mocha": "^11.7.5",
+    "sinon": "^21.0.1",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.3.3"
+  }
+}
