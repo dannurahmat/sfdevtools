@@ -1,10 +1,16 @@
 const Module = require('module');
 const originalLoader = Module._load;
 
-// Global state for mocking exec
-global.__sfdevtools_mock_exec = null;
+export {};
 
-Module._load = function (request, parent, isMain) {
+declare global {
+    var __sfdevtools_mock_exec: any;
+}
+
+// Global state for mocking exec
+__sfdevtools_mock_exec = null;
+
+Module._load = function (request: any, parent: any, isMain: any) {
     if (request === 'vscode') {
         const mockChannel = {
             appendLine: () => {},
@@ -39,10 +45,10 @@ Module._load = function (request, parent, isMain) {
         return new Proxy(res, {
             get(target, prop) {
                 if (prop === 'exec') {
-                    return function(cmd, options, callback) {
+                    return function(cmd: any, options: any, callback: any) {
                         const cb = typeof options === 'function' ? options : callback;
-                        if (global.__sfdevtools_mock_exec) {
-                            return global.__sfdevtools_mock_exec(cmd, options, cb);
+                        if (__sfdevtools_mock_exec) {
+                            return __sfdevtools_mock_exec(cmd, options, cb);
                         }
                         return target.exec(cmd, options, cb);
                     };

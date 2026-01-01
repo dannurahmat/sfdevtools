@@ -54,7 +54,7 @@
         {
           "id": "sfdevtools-sidebar",
           "title": "SF DevTools",
-          "icon": "resources/icon.svg"
+          "icon": "resources/icon.png"
         }
       ]
     },
