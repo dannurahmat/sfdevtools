@@ -1,5 +1,5 @@
 {
-  "name": "sfdevtools",
+  "name": "sf-devtools",
   "displayName": "SF DevTools",
   "description": "Salesforce Developer Tools for VS Code",
   "version": "0.0.1",
@@ -104,5 +104,6 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/dannurahmat/sfdevtools.git"
-  }
+  },
+  "publisher": "drahmat"
 }
