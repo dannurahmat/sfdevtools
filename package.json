@@ -3,6 +3,7 @@
   "displayName": "SF DevTools",
   "description": "Salesforce Developer Tools for VS Code",
   "version": "0.0.1",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -99,5 +100,9 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dannurahmat/sfdevtools.git"
   }
 }
