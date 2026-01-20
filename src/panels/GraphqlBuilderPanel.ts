@@ -9,6 +9,7 @@ export class GraphqlBuilderPanel {
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
     private _sfCli: SfCli;
+    private _isDisposed = false;
 
     private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
         this._panel = panel;
@@ -25,7 +26,9 @@ export class GraphqlBuilderPanel {
                     case 'getObjects':
                         try {
                             const objects = await this._sfCli.listSObjects('all');
-                            this._panel.webview.postMessage({ command: 'setObjects', objects });
+                            if (!this._isDisposed) {
+                                this._panel.webview.postMessage({ command: 'setObjects', objects });
+                            }
                         } catch (e) {
                             vscode.window.showErrorMessage(`Error fetching objects: ${e}`);
                         }
@@ -36,7 +39,9 @@ export class GraphqlBuilderPanel {
                             const { sobject, parentPath } = message;
                             // Re-use describeSObject from CLI. GraphQL schema is similar enough for basic fields selection.
                             const { fields, childRelationships } = await this._sfCli.describeSObject(sobject);
-                            this._panel.webview.postMessage({ command: 'setFields', fields, childRelationships, parentPath });
+                            if (!this._isDisposed) {
+                                this._panel.webview.postMessage({ command: 'setFields', fields, childRelationships, parentPath });
+                            }
                         } catch (e) {
                             vscode.window.showErrorMessage(`Error describing ${message.sobject}: ${e}`);
                             this._panel.webview.postMessage({ command: 'stopFieldsLoading' });
@@ -51,7 +56,9 @@ export class GraphqlBuilderPanel {
                         }, async () => {
                             try {
                                 const result = await this._sfCli.executeGraphql(message.query);
-                                this._panel.webview.postMessage({ command: 'setResults', result });
+                                if (!this._isDisposed) {
+                                    this._panel.webview.postMessage({ command: 'setResults', result });
+                                }
                             } catch (e: any) {
                                 vscode.window.showErrorMessage(`GraphQL failed: ${e.message}`);
                                 this._panel.webview.postMessage({ command: 'stopQueryLoading' });
@@ -166,11 +173,14 @@ export class GraphqlBuilderPanel {
     }
 
     public dispose() {
+        this._isDisposed = true;
         GraphqlBuilderPanel.currentPanel = undefined;
         this._panel.dispose();
         while (this._disposables.length) {
             const x = this._disposables.pop();
-            isDisposable(x) && x.dispose();
+            if (x) {
+                x.dispose();
+            }
         }
     }
 

@@ -254,6 +254,12 @@ export class SoqlBuilderPanel {
         
         .pagination-footer { display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; background: var(--vscode-sideBar-background); border-top: 1px solid var(--vscode-panel-border); gap: 10px; flex-wrap: wrap; }
         
+        .condition-row { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); border-radius: 4px; margin-bottom: 8px; border: 1px solid var(--vscode-panel-border); }
+        .condition-controls { display: flex; gap: 4px; align-items: center; }
+        .condition-controls select, .condition-controls input { flex: 1; min-width: 0; font-size: 12px; padding: 4px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); }
+        .condition-row .remove-btn { color: var(--vscode-errorForeground); cursor: pointer; font-size: 16px; font-weight: bold; padding: 0 4px; }
+        .condition-row .remove-btn:hover { color: #f44336; }
+        
         .export-dropdown button { background-color: #0078d4; color: #ffffff; border: none; padding: 6px 14px; cursor: pointer; border-radius: 2px; font-weight: 600; font-size: 13px; }
         .export-dropdown button:hover { background-color: #106ebe; }
         button { background-color: #0078d4; color: #ffffff; border: none; padding: 6px 14px; cursor: pointer; border-radius: 2px; font-weight: 600; font-size: 13px; }
@@ -345,12 +351,28 @@ export class SoqlBuilderPanel {
                             <div class="spinner"></div>
                         </div>
                     </div>
+
+                    <div class="selector-section" id="conditions-section">
+                        <div class="fields-header">
+                            <div class="fields-title-row">
+                                <span>Conditions</span>
+                                <button class="btn-blue btn-small" onclick="addCondition()">+ Add</button>
+                            </div>
+                        </div>
+                        <div id="conditions-list" class="fields-list" style="padding: 10px;">
+                            <div style="padding:10px; color:#888; text-align:center; font-size:12px;">No conditions added</div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="query-lat">
                     <div class="query-box-header">SOQL Query</div>
                     <textarea id="soql-query" class="query-box" placeholder="SELECT Id FROM ${this._mode === 'tooling' ? 'Flow...' : 'Account...'} "></textarea>
                     <div class="query-footer">
+                        <div style="display:flex; align-items:center; gap:8px; margin-right: auto;">
+                            <label style="font-size:11px; color:var(--vscode-descriptionForeground);">LIMIT</label>
+                            <input type="number" id="query-limit" style="width:70px; font-size:11px;" placeholder="No limit" oninput="updateQuery()">
+                        </div>
                         <button onclick="runQuery()" style="margin-right: 10px;">Run Query</button>
                         <button class="secondary" onclick="copyQuery()">Copy Query</button>
                     </div>
@@ -411,6 +433,17 @@ export class SoqlBuilderPanel {
         let baseChildRels = [];
         let relData = {}; // Path -> { fields, childRelationships }
         let selectedFields = new Set();
+        let conditions = [];
+
+        function matches(text, term) {
+            if (!term) return true;
+            try {
+                const regex = new RegExp(term, 'i');
+                return regex.test(text);
+            } catch (e) {
+                return text.toLowerCase().includes(term.toLowerCase());
+            }
+        }
         
         let allResults = [];
         let currentPage = 1;
@@ -439,6 +472,7 @@ export class SoqlBuilderPanel {
                         relData[parentPath] = { fields, childRelationships: childRelationships || [] };
                     }
                     renderFields();
+                    renderConditions();
                     updateQuery();
                     document.getElementById('fields-loading').style.display = 'none';
                     document.getElementById('rel-loading').style.display = 'none';
@@ -471,8 +505,11 @@ export class SoqlBuilderPanel {
         
         function selectObject(obj) {
             currentObject = obj;
+            conditions = []; 
             document.getElementById('fields-title').textContent = obj;
-            renderObjects(allObjects.filter(o => o.toLowerCase().includes(document.getElementById('object-search').value.toLowerCase())));
+            const searchTerm = document.getElementById('object-search').value;
+            renderObjects(allObjects.filter(o => matches(o, searchTerm)));
+            renderConditions();
             document.getElementById('fields-loading').style.display = 'flex';
             document.getElementById('rel-loading').style.display = 'flex';
             switchTab('builder');
@@ -480,7 +517,7 @@ export class SoqlBuilderPanel {
         }
         
         document.getElementById('object-search').addEventListener('input', (e) => {
-            renderObjects(allObjects.filter(o => o.toLowerCase().includes(e.target.value.toLowerCase())));
+            renderObjects(allObjects.filter(o => matches(o, e.target.value)));
         });
 
         document.getElementById('field-search').addEventListener('input', () => renderFields());
@@ -492,8 +529,8 @@ export class SoqlBuilderPanel {
             fieldList.innerHTML = '';
             relList.innerHTML = '';
             
-            const fieldSearch = document.getElementById('field-search').value.toLowerCase();
-            const relSearch = document.getElementById('rel-search').value.toLowerCase();
+            const fieldSearch = document.getElementById('field-search').value;
+            const relSearch = document.getElementById('rel-search').value;
             
             renderFieldList(baseFields, '', fieldList, fieldSearch, 0);
 
@@ -505,7 +542,7 @@ export class SoqlBuilderPanel {
         }
 
         function renderFieldList(fields, path, container, search, depth) {
-            fields.filter(f => !search || f.name.toLowerCase().includes(search) || (f.label && f.label.toLowerCase().includes(search)))
+            fields.filter(f => !search || matches(f.name, search) || (f.label && matches(f.label, search)))
             .forEach(f => {
                 const fullPath = path ? path + '.' + f.name : f.name;
                 const relationshipPath = path ? path + '.' + f.relationshipName : f.relationshipName;
@@ -554,7 +591,7 @@ export class SoqlBuilderPanel {
         }
 
         function renderChildRelList(rels, path, container, search) {
-            rels.filter(r => !search || r.relationshipName.toLowerCase().includes(search))
+            rels.filter(r => !search || matches(r.relationshipName, search))
             .forEach(r => {
                 const relPath = path ? path + '.' + r.relationshipName : r.relationshipName;
                 const div = document.createElement('div');
@@ -615,8 +652,95 @@ export class SoqlBuilderPanel {
                 fieldsStr += \`, (SELECT \${subqueries[relName].join(', ')} FROM \${relName})\`;
             });
 
-            document.getElementById('soql-query').value = \`SELECT \${fieldsStr} FROM \${currentObject} LIMIT 2000\`;
+            let whereClause = '';
+            const validConditions = conditions.filter(c => c.field && c.operator);
+            if (validConditions.length > 0) {
+                whereClause = ' WHERE ' + validConditions.map(c => {
+                    let val = c.value;
+                    const fieldMeta = baseFields.find(f => f.name === c.field);
+                    const isNumeric = fieldMeta && (fieldMeta.type === 'double' || fieldMeta.type === 'int' || fieldMeta.type === 'currency' || fieldMeta.type === 'percent');
+                    const isBoolean = fieldMeta && fieldMeta.type === 'boolean';
+                    
+                    if (val === '') return \`\${c.field} \${c.operator} null\`;
+                    if (isNumeric || isBoolean) return \`\${c.field} \${c.operator} \${val}\`;
+                    return \`\${c.field} \${c.operator} '\${val.replace(/'/g, "\\\\'")}'\`;
+                }).join(' AND ');
+            }
+
+            const limitVal = document.getElementById('query-limit').value;
+            const limitClause = limitVal ? \` LIMIT \${limitVal}\` : '';
+
+            document.getElementById('soql-query').value = \`SELECT \${fieldsStr} FROM \${currentObject}\${whereClause}\${limitClause}\`;
         }
+
+        function addCondition() {
+            if (!currentObject) return;
+            conditions.push({ field: '', operator: '=', value: '' });
+            renderConditions();
+            updateQuery();
+        }
+
+        function removeCondition(index) {
+            conditions.splice(index, 1);
+            renderConditions();
+            updateQuery();
+        }
+
+        function updateCondition(index, field, value) {
+            conditions[index][field] = value;
+            updateQuery();
+        }
+
+        function renderConditions() {
+            const list = document.getElementById('conditions-list');
+            list.innerHTML = '';
+            if (conditions.length === 0) {
+                list.innerHTML = '<div style="padding:10px; color:#888; text-align:center; font-size:12px;">No conditions added</div>';
+                return;
+            }
+
+            conditions.forEach((c, i) => {
+                const row = document.createElement('div');
+                row.className = 'condition-row';
+
+                const controls = document.createElement('div');
+                controls.className = 'condition-controls';
+
+                const fieldSel = document.createElement('select');
+                fieldSel.innerHTML = '<option value="">-- Field --</option>' + 
+                    baseFields.map(f => \`<option value="\${f.name}" \${c.field === f.name ? 'selected' : ''}>\${f.name}</option>\`).join('');
+                fieldSel.onchange = (e) => updateCondition(i, 'field', e.target.value);
+
+                const opSel = document.createElement('select');
+                const ops = ['=', '!=', '<', '<=', '>', '>=', 'LIKE', 'IN', 'NOT IN'];
+                opSel.innerHTML = ops.map(o => \`<option value="\${o}" \${c.operator === o ? 'selected' : ''}>\${o}</option>\`).join('');
+                opSel.onchange = (e) => updateCondition(i, 'operator', e.target.value);
+
+                const valInp = document.createElement('input');
+                valInp.type = 'text';
+                valInp.placeholder = 'Value...';
+                valInp.value = c.value;
+                valInp.oninput = (e) => updateCondition(i, 'value', e.target.value);
+
+                const removeBtn = document.createElement('span');
+                removeBtn.className = 'remove-btn';
+                removeBtn.textContent = '×';
+                removeBtn.onclick = () => removeCondition(i);
+
+                controls.appendChild(fieldSel);
+                controls.appendChild(opSel);
+                row.appendChild(controls);
+                
+                const valRow = document.createElement('div');
+                valRow.className = 'condition-controls';
+                valRow.appendChild(valInp);
+                valRow.appendChild(removeBtn);
+                row.appendChild(valRow);
+
+                list.appendChild(row);
+            });
+        }
+        
         
         function runQuery() {
             const q = document.getElementById('soql-query').value;

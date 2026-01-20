@@ -4,10 +4,14 @@ import { MetadataBrowserPanel } from './panels/MetadataBrowserPanel';
 import { ApexLogsPanel } from './panels/ApexLogsPanel';
 import { SoqlBuilderPanel } from './panels/SoqlBuilderPanel';
 import { GraphqlBuilderPanel } from './panels/GraphqlBuilderPanel';
+import { MetadataCacheService } from './services/MetadataCacheService';
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('SF DevTools is now active!');
     const sfCli = new SfCli();
+    
+    // Initialize Metadata Cache in Background
+    MetadataCacheService.getInstance().initialize();
 
     // Commands
     let refreshDisposable = vscode.commands.registerCommand('sfdevtools.refreshOrg', () => {

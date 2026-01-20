@@ -3,18 +3,21 @@
     "module": "commonjs",
     "target": "es2020",
     "outDir": "out",
+    "rootDir": "src",
     "lib": [
       "es2020"
     ],
     "sourceMap": true,
     "strict": true,
-    "baseUrl": ".",
-    "paths": {
-      "vscode": ["test/vscodeMock.ts"]
-    }
+    "esModuleInterop": true
   },
+  "include": [
+    "src"
+  ],
   "exclude": [
     "node_modules",
-    ".vscode-test"
+    ".vscode-test",
+    "test",
+    "out"
   ]
 }

@@ -4,6 +4,7 @@ import { ManifestHelper } from '../manifestHelper';
 import * as path from 'path';
 import * as fs from 'fs';
 import { OutputChannel } from '../utils/outputChannel';
+import { MetadataCacheService } from '../services/MetadataCacheService';
 
 export class MetadataBrowserPanel {
     public static currentPanel: MetadataBrowserPanel | undefined;
@@ -12,8 +13,10 @@ export class MetadataBrowserPanel {
     private _disposables: vscode.Disposable[] = [];
     private _sfCli: SfCli;
     private _manifestHelper: ManifestHelper;
+    private _isDisposed: boolean = false;
+    private _metadataCacheService: MetadataCacheService;
 
-    private _componentCache: Map<string, { fullName: string, id: string }[]> = new Map();
+    // Local cache removed, utilizing service
     private _activeManifestPaths: Map<string, string> = new Map();
     private _lastManifestDir: string | undefined;
     private _lastRetrieveDir: string | undefined;
@@ -23,6 +26,7 @@ export class MetadataBrowserPanel {
         this._extensionUri = extensionUri;
         this._sfCli = new SfCli();
         this._manifestHelper = new ManifestHelper();
+        this._metadataCacheService = MetadataCacheService.getInstance();
 
         this._update();
         
@@ -33,8 +37,11 @@ export class MetadataBrowserPanel {
                 switch (message.command) {
                     case 'getMetadataTypes':
                         try {
-                             const types = await this._sfCli.describeMetadata();
-                             this._panel.webview.postMessage({ command: 'setMetadataTypes', types });
+                             // Use service
+                             const types = await this._metadataCacheService.getMetadataTypes();
+                             if (!this._isDisposed) {
+                                this._panel.webview.postMessage({ command: 'setMetadataTypes', types });
+                             }
                         } catch (e) {
                              vscode.window.showErrorMessage(`Failed to load metadata types: ${e}`);
                              this._panel.webview.postMessage({ command: 'setMetadataTypes', types: [] });
@@ -44,25 +51,24 @@ export class MetadataBrowserPanel {
                         {
                             const type = message.type;
                             let components: { fullName: string, id: string }[] = [];
-                            if (this._componentCache.has(type)) {
-                                components = this._componentCache.get(type)!;
-                            } else {
-                                try {
-                                    components = await this._sfCli.listMetadata(type);
-                                    this._componentCache.set(type, components);
-                                } catch (e) {
-                                    vscode.window.showErrorMessage(`Error fetching components: ${e}`);
-                                }
+                            try {
+                                // Use service
+                                components = await this._metadataCacheService.getComponents(type);
+                            } catch (e) {
+                                vscode.window.showErrorMessage(`Error fetching components: ${e}`);
                             }
+                            
                             // Read package.xml to pre-select items
                             const activePath = this._activeManifestPaths.get('package.xml');
                             const packageItems = this._manifestHelper.readManifest('package.xml', activePath);
-                            this._panel.webview.postMessage({ 
-                                command: 'setComponents', 
-                                type, 
-                                components,
-                                packageItems: packageItems.filter(item => item.type === type).map(item => item.fullName)
-                            });
+                            if (!this._isDisposed) {
+                                this._panel.webview.postMessage({ 
+                                    command: 'setComponents', 
+                                    type, 
+                                    components,
+                                    packageItems: packageItems.filter(item => item.type === type).map(item => item.fullName)
+                                });
+                            }
                         }
                         return;
 
@@ -147,11 +153,12 @@ export class MetadataBrowserPanel {
 
                                      vscode.window.showInformationMessage(`Successfully updated ${action} at: ${savedPath}`);
 
-                                     if (this._panel.webview && action === 'package.xml') {
+                                     if (this._panel.webview && action === 'package.xml' && !this._isDisposed) {
+                                         const comps = await this._metadataCacheService.getComponents(items[0].type);
                                          this._panel.webview.postMessage({ 
                                              command: 'setComponents', 
                                              type: items[0].type, 
-                                             components: this._componentCache.get(items[0].type) || [],
+                                             components: comps || [],
                                              packageItems: items.map((i: any) => i.fullName) 
                                          });
                                      }
@@ -189,9 +196,11 @@ export class MetadataBrowserPanel {
                                     await this._manifestHelper.deleteManifests(Array.from(pathsToDelete));
                                     this._activeManifestPaths.clear();
                                     this._lastManifestDir = undefined;
-                                    
-                                    vscode.window.showInformationMessage(`Successfully reset all manifests and folders.`);
-                                    this._panel.webview.postMessage({ command: 'clearSelections' });
+                                     
+                                     vscode.window.showInformationMessage(`Successfully reset all manifests and folders.`);
+                                     if (!this._isDisposed) {
+                                         this._panel.webview.postMessage({ command: 'clearSelections' });
+                                     }
                                 } catch (e: any) {
                                     vscode.window.showErrorMessage(`Failed to delete manifest folders: ${e.message}`);
                                 }
@@ -236,6 +245,7 @@ export class MetadataBrowserPanel {
     }
 
     public dispose() {
+        this._isDisposed = true;
         MetadataBrowserPanel.currentPanel = undefined;
         this._panel.dispose();
         while (this._disposables.length) {
@@ -265,13 +275,17 @@ export class MetadataBrowserPanel {
         .sidebar-header { padding: 10px; border-bottom: 1px solid var(--vscode-panel-border); }
         .sidebar-header input { width: 100%; box-sizing: border-box; padding: 4px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); }
         .types-list { overflow-y: auto; flex-grow: 1; }
-        .type-item { padding: 6px 10px; cursor: pointer; }
+        .type-item { padding: 6px 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .count-selected { background-color: #0078d4; color: #ffffff; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
         .type-item:hover { background-color: var(--vscode-list-hoverBackground); }
         .type-item.selected { background-color: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+        .type-item.selected .count-selected { background-color: var(--vscode-list-activeSelectionForeground); color: var(--vscode-list-activeSelectionBackground); }
         
         .main-content { flex-grow: 1; display: flex; flex-direction: column; padding: 10px; overflow: hidden; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; min-height: 30px; }
-        .header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+        .header > div#current-type { display: flex; flex-direction: row; align-items: baseline; gap: 8px; margin: 0; }
+        .header h2 { font-size: 16px; font-weight: 600; margin: 0; }
+        .header span {color:#888}
         .controls { display: flex; gap: 10px; align-items: center; width: 60%; }
         .controls input { flex-grow: 1; padding: 4px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); }
         
@@ -300,6 +314,13 @@ export class MetadataBrowserPanel {
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
         #no-selection { display: flex; justify-content: center; align-items: center; height: 100%; color: var(--vscode-descriptionForeground); }
+        .highlight { background-color: var(--vscode-editor-findMatchHighlightBackground); color: var(--vscode-editor-findMatchHighlightForeground, inherit); border-radius: 2px; }
+        
+        .search-container { display: flex; align-items: center; position: relative; flex-grow: 1; }
+        .search-container input { width: 100%; padding-right: 30px; box-sizing: border-box; }
+        .regex-toggle { position: absolute; right: 2px; background: none; border: none; color: var(--vscode-input-foreground); cursor: pointer; padding: 2px 4px; font-size: 10px; border-radius: 2px; opacity: 0.5; width: auto; font-family: monospace; }
+        .regex-toggle:hover { background-color: var(--vscode-toolbar-hoverBackground); opacity: 1; }
+        .regex-toggle.active { background-color: var(--vscode-button-background); color: var(--vscode-button-foreground); opacity: 1; }
     </style>
 </head>
 <body>
@@ -315,9 +336,15 @@ export class MetadataBrowserPanel {
     </div>
     <div class="main-content">
         <div class="header">
-            <h2 id="current-type-title">Select a Type</h2>
+            <div id="current-type">
+                <h2 id="current-type-title">Select a Type</h2>
+                <span id="component-count" style="font-size: 11px; opacity: 0.8;"></span>
+            </div>
             <div class="controls" id="controls" style="display:none;">
-                <input type="text" id="component-search" placeholder="Search components...">
+                <div class="search-container">
+                    <input type="text" id="component-search" placeholder="Search...">
+                    <button class="regex-toggle" id="regex-toggle" onclick="toggleRegexMode()" title="Use Regular Expression">.*</button>
+                </div>
                 <label style="display:flex; align-items:center; gap:5px; flex-shrink:0;"><input type="checkbox" id="select-all"> Select All</label>
                 <button style="margin-left: 10px; padding: 6px 16px; font-weight: 600; flex-grow: 0; min-width: 80px;" onclick="resetAll()">Reset</button>
             </div>
@@ -353,6 +380,51 @@ export class MetadataBrowserPanel {
         let currentComponents = [];
         let currentType = '';
         let selectedComponents = new Set();
+        let isRegexMode = false;
+
+        function toggleRegexMode() {
+            isRegexMode = !isRegexMode;
+            document.getElementById('regex-toggle').classList.toggle('active', isRegexMode);
+            // Trigger search update
+            const term = document.getElementById('component-search').value;
+            const filtered = currentComponents.filter(c => {
+                const name = typeof c === 'object' ? c.fullName : c;
+                return matches(name, term);
+            });
+            renderComponents(filtered);
+        }
+
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&');
+        }
+
+        function matches(text, term) {
+            if (!term) return true;
+            if (isRegexMode) {
+                try {
+                    const regex = new RegExp(term, 'i');
+                    return regex.test(text);
+                } catch (e) {
+                    return false;
+                }
+            } else {
+                return text.toLowerCase().includes(term.toLowerCase());
+            }
+        }
+
+        function highlightText(text, term) {
+            if (!term) return text;
+            try {
+                let pattern = term;
+                if (!isRegexMode) {
+                    pattern = escapeRegExp(term);
+                }
+                const regex = new RegExp('(' + pattern + ')', 'gi');
+                return text.replace(regex, '<span class="highlight">$1</span>');
+            } catch (e) {
+               return text;
+            }
+        }
 
         window.addEventListener('message', event => {
             const message = event.data;
@@ -362,24 +434,25 @@ export class MetadataBrowserPanel {
                     renderTypes(allTypes);
                     break;
                 case 'setComponents':
-                    if (message.type === currentType) {
-                        currentComponents = message.components;
-                        if (message.packageItems) {
-                            message.packageItems.forEach(fullName => {
-                                selectedComponents.add(currentType + ':' + fullName);
-                            });
-                        }
-                        renderComponents(currentComponents);
-                        document.getElementById('loading').style.display = 'none';
+                    currentComponents = message.components;
+                    if (message.packageItems && message.packageItems.length > 0) {
+                        message.packageItems.forEach(name => {
+                            selectedComponents.add(currentType + ':' + name);
+                        });
                     }
+                    renderComponents(currentComponents);
+                    updateUI();
+                    document.getElementById('loading').style.display = 'none';
                     break;
                 case 'clearSelections':
                     selectedComponents.clear();
                     document.getElementById('select-all').checked = false;
+                    const compTerm = document.getElementById('component-search').value;
                     renderComponents(currentComponents.filter(c => {
                         const name = typeof c === 'object' ? c.fullName : c;
-                        return name.toLowerCase().includes(document.getElementById('component-search').value.toLowerCase());
+                        return matches(name, compTerm);
                     }));
+                    updateUI();
                     break;
             }
         });
@@ -387,8 +460,8 @@ export class MetadataBrowserPanel {
         vscode.postMessage({ command: 'getMetadataTypes' });
 
         document.getElementById('type-search').addEventListener('input', (e) => {
-            const term = e.target.value.toLowerCase();
-            const filtered = allTypes.filter(t => t.toLowerCase().includes(term));
+            const term = e.target.value;
+            const filtered = allTypes.filter(t => matches(t, term));
             renderTypes(filtered);
         });
 
@@ -396,18 +469,40 @@ export class MetadataBrowserPanel {
             const list = document.getElementById('types-list');
             list.innerHTML = '';
             types.forEach(t => {
+                const count = Array.from(selectedComponents).filter(key => key.startsWith(t + ':')).length;
                 const div = document.createElement('div');
                 div.className = 'type-item' + (t === currentType ? ' selected' : '');
                 div.textContent = t;
                 div.onclick = () => selectType(t);
+
+                if(count > 0) {
+                    const countSpan = document.createElement('span');
+                    countSpan.className = 'count-selected';
+                    countSpan.textContent = count;
+                    div.appendChild(countSpan);
+                }
+
                 list.appendChild(div);
             });
         }
 
+        function updateUI() {
+            // Update sidebar counts
+            const searchTerm = document.getElementById('type-search').value;
+            renderTypes(allTypes.filter(t => matches(t, searchTerm)));
+            
+            // Update header title
+            document.getElementById('current-type-title').textContent = currentType || 'Select a Type';
+            
+
+            
+        }
+
         function selectType(type) {
             currentType = type;
-            renderTypes(allTypes.filter(t => t.toLowerCase().includes(document.getElementById('type-search').value.toLowerCase())));
-            document.getElementById('current-type-title').textContent = type;
+            currentComponents = [];
+            document.getElementById('component-count').textContent = '';
+            updateUI();
             document.getElementById('controls').style.display = 'flex';
             document.getElementById('component-list').innerHTML = '';
             document.getElementById('loading').style.display = 'flex';
@@ -418,10 +513,10 @@ export class MetadataBrowserPanel {
         }
 
         document.getElementById('component-search').addEventListener('input', (e) => {
-            const term = e.target.value.toLowerCase();
+            const term = e.target.value;
             const filtered = currentComponents.filter(c => {
                 const name = typeof c === 'object' ? c.fullName : c;
-                return name.toLowerCase().includes(term);
+                return matches(name, term);
             });
             renderComponents(filtered);
         });
@@ -429,6 +524,18 @@ export class MetadataBrowserPanel {
         function renderComponents(components) {
             const list = document.getElementById('component-list');
             list.innerHTML = '';
+            
+            const countSpan = document.getElementById('component-count');
+            if (countSpan) {
+                const total = currentComponents.length;
+                const visible = components.length;
+                if (visible === total) {
+                    countSpan.textContent = '(' + total + ' items)';
+                } else {
+                    countSpan.textContent = '(' + visible + ' found / ' + total + ' total)';
+                }
+            }
+
             if(components.length === 0) {
                 list.innerHTML = '<div style="padding:10px; color:#888;">No components found.</div>';
                 return;
@@ -445,7 +552,11 @@ export class MetadataBrowserPanel {
                 cb.onchange = (e) => toggleSelection(key, e.target.checked);
                 const label = document.createElement('label');
                 label.htmlFor = 'cb_' + name;
-                label.textContent = name;
+                
+                // Use highlightText
+                const searchTerm = document.getElementById('component-search').value;
+                label.innerHTML = highlightText(name, searchTerm);
+                
                 div.appendChild(cb);
                 div.appendChild(label);
                 list.appendChild(div);
@@ -456,14 +567,15 @@ export class MetadataBrowserPanel {
         function toggleSelection(key, checked) {
             if (checked) selectedComponents.add(key);
             else selectedComponents.delete(key);
+            updateUI();
         }
         
         document.getElementById('select-all').addEventListener('change', (e) => {
             const checked = e.target.checked;
-            const term = document.getElementById('component-search').value.toLowerCase();
+            const term = document.getElementById('component-search').value;
             const visible = currentComponents.filter(c => {
                 const name = typeof c === 'object' ? c.fullName : c;
-                return name.toLowerCase().includes(term);
+                return matches(name, term);
             });
             visible.forEach(c => {
                 const name = typeof c === 'object' ? c.fullName : c;
@@ -472,6 +584,7 @@ export class MetadataBrowserPanel {
                 else selectedComponents.delete(key);
             });
             renderComponents(visible);
+            updateUI();
         });
 
         function updateSelectAllState(visibleComponents) {

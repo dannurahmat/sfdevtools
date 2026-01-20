@@ -7,6 +7,7 @@ export class ApexLogsPanel {
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
     private _sfCli: SfCli;
+    private _isDisposed = false;
 
     private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
         this._panel = panel;
@@ -61,6 +62,7 @@ export class ApexLogsPanel {
     }
 
     public dispose() {
+        this._isDisposed = true;
         ApexLogsPanel.currentPanel = undefined;
         this._panel.dispose();
         while (this._disposables.length) {
@@ -74,7 +76,9 @@ export class ApexLogsPanel {
     private async _refreshLogs() {
         try {
             const logs = await this._sfCli.getApexLogs();
-            this._panel.webview.postMessage({ command: 'setLogs', logs });
+            if (!this._isDisposed) {
+                this._panel.webview.postMessage({ command: 'setLogs', logs });
+            }
         } catch (e) {
             vscode.window.showErrorMessage(`Error fetching logs: ${e}`);
         }
@@ -163,7 +167,8 @@ export class ApexLogsPanel {
     <style>
         body { font-family: var(--vscode-font-family); padding: 20px; color: var(--vscode-foreground); background-color: var(--vscode-editor-background); }
         h2 { margin-top: 0; }
-        .controls { margin-bottom: 20px; display: flex; gap: 10px; align-items: center; }
+        .controls { margin-bottom: 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .controls input[type="text"] { flex-grow: 1; min-width: 200px; padding: 6px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); }
         
         button { background-color: #0078d4; color: #ffffff; border: none; padding: 6px 12px; cursor: pointer; border-radius: 2px; }
         button:hover { background-color: #106ebe; }
@@ -193,6 +198,7 @@ export class ApexLogsPanel {
     <div style="display:flex; justify-content:space-between; align-items:center;">
         <h2>Apex Debug Logs</h2>
         <div class="controls">
+             <input type="text" id="log-search" placeholder="Search logs (regex supported)..." oninput="renderLogs()">
              <button class="secondary" onclick="downloadSelected()" id="btn-download" disabled>Download Selected</button>
              <button onclick="refreshLogs()">Refresh</button>
         </div>
@@ -221,6 +227,16 @@ export class ApexLogsPanel {
         let currentLogs = [];
         let selectedLogs = new Set();
         
+        function matches(text, term) {
+            if (!term) return true;
+            try {
+                const regex = new RegExp(term, 'i');
+                return regex.test(text);
+            } catch (e) {
+                return text.toLowerCase().includes(term.toLowerCase());
+            }
+        }
+        
         window.addEventListener('message', event => {
             const message = event.data;
             switch(message.command) {
@@ -247,14 +263,23 @@ export class ApexLogsPanel {
             const tbody = document.querySelector('#logs-table tbody');
             tbody.innerHTML = '';
             
-            if(currentLogs.length === 0) {
+            const searchTerm = document.getElementById('log-search').value;
+            const filteredLogs = currentLogs.filter(log => {
+                const user = (typeof log.LogUser === 'string') ? log.LogUser : (log.LogUser ? log.LogUser.Name : 'Unknown');
+                return matches(user, searchTerm) || 
+                       matches(log.Operation, searchTerm) || 
+                       matches(log.Status, searchTerm) ||
+                       matches(log.StartTime, searchTerm);
+            });
+
+            if(filteredLogs.length === 0) {
                 const tr = document.createElement('tr');
                 tr.innerHTML = '<td colspan="8" style="text-align:center; padding: 20px;">No logs found.</td>';
                 tbody.appendChild(tr);
                 return;
             }
 
-            currentLogs.forEach(log => {
+            filteredLogs.forEach(log => {
                 const tr = document.createElement('tr');
                 
                 const user = (typeof log.LogUser === 'string') ? log.LogUser : (log.LogUser ? log.LogUser.Name : 'Unknown');
@@ -286,9 +311,20 @@ export class ApexLogsPanel {
         
         document.getElementById('select-all').addEventListener('change', (e) => {
             const checked = e.target.checked;
-            document.querySelectorAll('.log-cb').forEach(cb => {
-                cb.checked = checked;
-                const id = cb.getAttribute('data-id');
+            const searchTerm = document.getElementById('log-search').value;
+            const visibleLogs = currentLogs.filter(log => {
+                const user = (typeof log.LogUser === 'string') ? log.LogUser : (log.LogUser ? log.LogUser.Name : 'Unknown');
+                return matches(user, searchTerm) || 
+                       matches(log.Operation, searchTerm) || 
+                       matches(log.Status, searchTerm) ||
+                       matches(log.StartTime, searchTerm);
+            });
+
+            visibleLogs.forEach(log => {
+                const id = log.Id;
+                const cb = document.querySelector('.log-cb[data-id="' + id + '"]');
+                if (cb) cb.checked = checked;
+
                 if(checked) selectedLogs.add(id);
                 else selectedLogs.delete(id);
             });
