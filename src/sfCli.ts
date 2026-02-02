@@ -573,7 +573,7 @@ export class SfCli {
     }
 
     public async describeSObject(sobject: string, useToolingApi: boolean = false): Promise<{ 
-        fields: { name: string, label: string, type: string, relationshipName?: string, referenceTo?: string[] }[],
+        fields: { name: string, label: string, type: string, relationshipName?: string, referenceTo?: string[], picklistValues?: any[] }[],
         childRelationships: { relationshipName: string, childSObject: string }[]
     }> {
         const channel = OutputChannel;
@@ -586,13 +586,13 @@ export class SfCli {
             const result = await this._request('GET', endpoint);
             
             if (result && Array.isArray(result.fields)) {
-                channel.appendLine(`Found ${result.fields.length} fields for ${sobject}`);
                 const fields = result.fields.map((f: any) => ({
                     name: f.name,
                     label: f.label,
                     type: f.type,
                     relationshipName: f.relationshipName,
-                    referenceTo: f.referenceTo
+                    referenceTo: f.referenceTo,
+                    picklistValues: f.picklistValues
                 })).sort((a: any, b: any) => a.name.localeCompare(b.name));
 
                 const childRelationships = Array.isArray(result.childRelationships) 
@@ -624,7 +624,8 @@ export class SfCli {
                         label: f.label,
                         type: f.type,
                         relationshipName: f.relationshipName,
-                        referenceTo: f.referenceTo
+                        referenceTo: f.referenceTo,
+                        picklistValues: f.picklistValues
                     })).sort((a: any, b: any) => a.name.localeCompare(b.name));
 
                     const childRelationships = Array.isArray(result.result.childRelationships) 

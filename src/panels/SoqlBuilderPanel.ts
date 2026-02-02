@@ -72,7 +72,7 @@ export class SoqlBuilderPanel {
                             const { content, fileName } = message;
                             const uri = await vscode.window.showSaveDialog({
                                 defaultUri: vscode.Uri.file(path.join(vscode.workspace.workspaceFolders?.[0].uri.fsPath || '', fileName)),
-                                filters: { 'Data': [fileName.split('.').pop()] }
+                                filters: { 'Data': [fileName.split('.').pop() || 'json'] }
                             });
                             if (uri) {
                                 fs.writeFileSync(uri.fsPath, content);
@@ -143,6 +143,7 @@ export class SoqlBuilderPanel {
                         return;
                 }
             },
+            null,
             this._disposables
         );
     }
@@ -260,6 +261,9 @@ export class SoqlBuilderPanel {
         .condition-row .remove-btn { color: var(--vscode-errorForeground); cursor: pointer; font-size: 16px; font-weight: bold; padding: 0 4px; }
         .condition-row .remove-btn:hover { color: #f44336; }
         
+        .condition-search-container { position: relative; margin-bottom: 8px; }
+        .condition-search-input { width: 100%; box-sizing: border-box; padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 2px; font-size: 12px; }
+        
         .export-dropdown button { background-color: #0078d4; color: #ffffff; border: none; padding: 6px 14px; cursor: pointer; border-radius: 2px; font-weight: 600; font-size: 13px; }
         .export-dropdown button:hover { background-color: #106ebe; }
         button { background-color: #0078d4; color: #ffffff; border: none; padding: 6px 14px; cursor: pointer; border-radius: 2px; font-weight: 600; font-size: 13px; }
@@ -299,6 +303,36 @@ export class SoqlBuilderPanel {
         }
         .custom-context-menu .menu-item:hover {
             background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground);
+        }
+        .autocomplete-items {
+            position: absolute;
+            border: 1px solid var(--vscode-input-border);
+            border-top: none;
+            z-index: 99;
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: var(--vscode-dropdown-background);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .autocomplete-item {
+            padding: 8px 10px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            font-size: 12px;
+            color: var(--vscode-foreground);
+        }
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+        .autocomplete-item:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+        .autocomplete-active {
+            background-color: var(--vscode-list-activeSelectionBackground) !important;
+            color: var(--vscode-list-activeSelectionForeground) !important;
         }
     </style>
 </head>
@@ -356,7 +390,11 @@ export class SoqlBuilderPanel {
                         <div class="fields-header">
                             <div class="fields-title-row">
                                 <span>Conditions</span>
-                                <button class="btn-blue btn-small" onclick="addCondition()">+ Add</button>
+                                <!-- Add button removed to enforce field selection via search -->
+                            </div>
+                            <div class="condition-search-container" id="condition-search-header" style="display:none; margin-top: 5px;">
+                                <input type="text" id="condition-field-search" class="condition-search-input" placeholder="Search field to add..." autocomplete="off">
+                                <div id="condition-fields-dropdown" class="autocomplete-items" style="display:none;"></div>
                             </div>
                         </div>
                         <div id="conditions-list" class="fields-list" style="padding: 10px;">
@@ -437,11 +475,15 @@ export class SoqlBuilderPanel {
 
         function matches(text, term) {
             if (!term) return true;
+            if (text == null) return false;
+            const textStr = String(text);
             try {
+                // Check if term is a valid regex
                 const regex = new RegExp(term, 'i');
-                return regex.test(text);
+                return regex.test(textStr);
             } catch (e) {
-                return text.toLowerCase().includes(term.toLowerCase());
+                // Fallback to simple inclusion if term is not a valid regex
+                return textStr.toLowerCase().includes(term.toLowerCase());
             }
         }
         
@@ -468,6 +510,8 @@ export class SoqlBuilderPanel {
                         selectedFields.clear();
                         if(baseFields.find(f => f.name === 'Id')) selectedFields.add('Id');
                         if(baseFields.find(f => f.name === 'Name')) selectedFields.add('Name');
+                        // updateFieldsDatalist removed
+                        document.getElementById('condition-search-header').style.display = 'block';
                     } else {
                         relData[parentPath] = { fields, childRelationships: childRelationships || [] };
                     }
@@ -518,6 +562,48 @@ export class SoqlBuilderPanel {
         
         document.getElementById('object-search').addEventListener('input', (e) => {
             renderObjects(allObjects.filter(o => matches(o, e.target.value)));
+        });
+
+        const conditionInput = document.getElementById('condition-field-search');
+        
+        conditionInput.addEventListener('input', function(e) {
+            const val = this.value;
+            closeAllLists();
+            if (!val) return false;
+            
+            const list = document.getElementById('condition-fields-dropdown');
+            list.style.display = 'block';
+            
+            let count = 0;
+            // Also search child relationships if useful, but sticking to base fields for now as per original
+            baseFields.forEach(f => {
+                if (count > 100) return; 
+                if (matches(f.name, val) || (f.label && matches(f.label, val))) {
+                    const div = document.createElement('div');
+                    div.className = 'autocomplete-item';
+                    div.innerHTML = \`<span style="font-weight:bold;">\${f.name}</span> <span style="font-size:10px; opacity:0.7;">(\${f.type})</span>\`;
+                    
+                    div.addEventListener("click", function(e) {
+                         addCondition(f.name);
+                         conditionInput.value = '';
+                         closeAllLists();
+                    });
+                    list.appendChild(div);
+                    count++;
+                }
+            });
+        });
+        
+        function closeAllLists(elmnt) {
+            const list = document.getElementById('condition-fields-dropdown');
+            if (elmnt != list && elmnt != conditionInput) {
+                list.innerHTML = '';
+                list.style.display = 'none';
+            }
+        }
+        
+        document.addEventListener("click", function (e) {
+            closeAllLists(e.target);
         });
 
         document.getElementById('field-search').addEventListener('input', () => renderFields());
@@ -655,16 +741,23 @@ export class SoqlBuilderPanel {
             let whereClause = '';
             const validConditions = conditions.filter(c => c.field && c.operator);
             if (validConditions.length > 0) {
-                whereClause = ' WHERE ' + validConditions.map(c => {
+                whereClause = ' WHERE ';
+                validConditions.forEach((c, i) => {
+                     if (i > 0) whereClause += \` \${c.logic || 'AND'} \`;
+                     
                     let val = c.value;
                     const fieldMeta = baseFields.find(f => f.name === c.field);
                     const isNumeric = fieldMeta && (fieldMeta.type === 'double' || fieldMeta.type === 'int' || fieldMeta.type === 'currency' || fieldMeta.type === 'percent');
                     const isBoolean = fieldMeta && fieldMeta.type === 'boolean';
                     
-                    if (val === '') return \`\${c.field} \${c.operator} null\`;
-                    if (isNumeric || isBoolean) return \`\${c.field} \${c.operator} \${val}\`;
-                    return \`\${c.field} \${c.operator} '\${val.replace(/'/g, "\\\\'")}'\`;
-                }).join(' AND ');
+                    if (val === '') {
+                        whereClause += \`\${c.field} \${c.operator} null\`;
+                    } else if (isNumeric || isBoolean) {
+                        whereClause += \`\${c.field} \${c.operator} \${val}\`;
+                    } else {
+                        whereClause += \`\${c.field} \${c.operator} '\${val.replace(/'/g, "\\\\'")}'\`;
+                    }
+                });
             }
 
             const limitVal = document.getElementById('query-limit').value;
@@ -673,9 +766,9 @@ export class SoqlBuilderPanel {
             document.getElementById('soql-query').value = \`SELECT \${fieldsStr} FROM \${currentObject}\${whereClause}\${limitClause}\`;
         }
 
-        function addCondition() {
+        function addCondition(fieldName = '') {
             if (!currentObject) return;
-            conditions.push({ field: '', operator: '=', value: '' });
+            conditions.push({ field: fieldName, operator: '=', value: '', logic: 'AND' });
             renderConditions();
             updateQuery();
         }
@@ -702,30 +795,34 @@ export class SoqlBuilderPanel {
             conditions.forEach((c, i) => {
                 const row = document.createElement('div');
                 row.className = 'condition-row';
+                
+                // Logic Selector (AND/OR) for subsequent conditions
+                if (i > 0) {
+                    const logicDiv = document.createElement('div');
+                    logicDiv.style.marginBottom = '4px';
+                    const logicSel = document.createElement('select');
+                    logicSel.style.width = '70px';
+                    logicSel.innerHTML = '<option value="AND" ' + (c.logic === 'AND' ? 'selected' : '') + '>AND</option><option value="OR" ' + (c.logic === 'OR' ? 'selected' : '') + '>OR</option>';
+                    logicSel.onchange = (e) => updateCondition(i, 'logic', e.target.value);
+                    logicDiv.appendChild(logicSel);
+                    row.appendChild(logicDiv);
+                }
 
                 const controls = document.createElement('div');
                 controls.className = 'condition-controls';
 
-                const fieldSel = document.createElement('select');
-                fieldSel.innerHTML = '<option value="">-- Field --</option>' + 
-                    baseFields.map(f => \`<option value="\${f.name}" \${c.field === f.name ? 'selected' : ''}>\${f.name}</option>\`).join('');
-                fieldSel.onchange = (e) => updateCondition(i, 'field', e.target.value);
+                const fieldSel = document.createElement('input');
+                fieldSel.type = 'text';
+                fieldSel.placeholder = 'Field...';
+                fieldSel.value = c.field;
+                fieldSel.disabled = true; // Field is fixed once added via search
+                fieldSel.style.flex = '2';
+                fieldSel.style.opacity = '0.7';
 
                 const opSel = document.createElement('select');
-                const ops = ['=', '!=', '<', '<=', '>', '>=', 'LIKE', 'IN', 'NOT IN'];
-                opSel.innerHTML = ops.map(o => \`<option value="\${o}" \${c.operator === o ? 'selected' : ''}>\${o}</option>\`).join('');
+                const ops = ['=', '!=', '<', '<=', '>', '>=', 'LIKE', 'IN', 'NOT IN', 'INCLUDES', 'EXCLUDES'];
+                opSel.innerHTML = ops.map(o => '<option value="' + o + '" ' + (c.operator === o ? 'selected' : '') + '>' + o + '</option>').join('');
                 opSel.onchange = (e) => updateCondition(i, 'operator', e.target.value);
-
-                const valInp = document.createElement('input');
-                valInp.type = 'text';
-                valInp.placeholder = 'Value...';
-                valInp.value = c.value;
-                valInp.oninput = (e) => updateCondition(i, 'value', e.target.value);
-
-                const removeBtn = document.createElement('span');
-                removeBtn.className = 'remove-btn';
-                removeBtn.textContent = '×';
-                removeBtn.onclick = () => removeCondition(i);
 
                 controls.appendChild(fieldSel);
                 controls.appendChild(opSel);
@@ -733,6 +830,40 @@ export class SoqlBuilderPanel {
                 
                 const valRow = document.createElement('div');
                 valRow.className = 'condition-controls';
+                
+                // Smart Input
+                let valInp;
+                const fieldMeta = baseFields.find(f => f.name === c.field);
+                
+                if (fieldMeta && fieldMeta.type === 'boolean') {
+                    valInp = document.createElement('select');
+                    valInp.innerHTML = '<option value="true" ' + (c.value === 'true' ? 'selected' : '') + '>true</option><option value="false" ' + (c.value === 'false' ? 'selected' : '') + '>false</option>';
+                    valInp.onchange = (e) => updateCondition(i, 'value', e.target.value);
+                    if (!c.value) { // Set default
+                         c.value = 'true';
+                         valInp.value = 'true';
+                         updateQuery(); // Trigger update for default
+                    }
+                } else if (fieldMeta && (fieldMeta.type === 'picklist' || fieldMeta.type === 'multipicklist') && fieldMeta.picklistValues && fieldMeta.picklistValues.length > 0) {
+                    valInp = document.createElement('select');
+                    valInp.innerHTML = '<option value="">-- Select --</option>' + fieldMeta.picklistValues.map(p => '<option value="' + p.value + '" ' + (c.value === p.value ? 'selected' : '') + '>' + (p.label || p.value) + '</option>').join('');
+                    valInp.onchange = (e) => updateCondition(i, 'value', e.target.value);
+                } else {
+                    valInp = document.createElement('input');
+                    valInp.type = 'text';
+                    valInp.placeholder = 'Value...';
+                    valInp.value = c.value;
+                    valInp.oninput = (e) => updateCondition(i, 'value', e.target.value);
+                }
+                
+                valInp.style.flex = '1';
+
+                const removeBtn = document.createElement('span');
+                removeBtn.className = 'remove-btn';
+                removeBtn.textContent = '×';
+                removeBtn.title = 'Remove condition';
+                removeBtn.onclick = () => removeCondition(i);
+
                 valRow.appendChild(valInp);
                 valRow.appendChild(removeBtn);
                 row.appendChild(valRow);
